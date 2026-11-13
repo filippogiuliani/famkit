@@ -27,6 +27,7 @@ and checks that the person may use both apps in that family:
   @service('/deadlines', methods=['POST'])                                     in the answering app"""
 import functools
 import hmac
+import json
 import threading
 import time
 import traceback
@@ -76,8 +77,38 @@ def guard():
         abort(409, 'The family is managed in weHub')
 
 
-def public_info():
-    return {'url': PUBLIC_URL or URL, 'name': 'weHub'} if enabled() else None
+def public_info(family_id=None, user_id=None):
+    """For /api/me: weHub's address and, for a signed-in person, the family apps they may use (the app switcher):
+    apps: [{id, name, url, current}], this app included. None without weHub."""
+    if not enabled():
+        return None
+    info = {'url': PUBLIC_URL or URL, 'name': 'weHub', 'apps': []}
+    if family_id and user_id:
+        with config.db.transaction() as conn:
+            ensure_schema(conn)
+            f = conn.execute('SELECT hub_apps FROM families WHERE id = ?', (family_id,)).fetchone()
+            u = conn.execute('SELECT hub_id FROM users WHERE id = ?', (user_id,)).fetchone()
+        try:
+            data = json.loads(f['hub_apps']) if f and f['hub_apps'] else {}
+        except ValueError:
+            data = {}
+        mine = set(data.get('access', {}).get(str(u['hub_id'] if u else ''), []))
+        info['apps'] = [{'id': a['id'], 'name': a['name'], 'url': a['url'], 'current': a['id'] == config.app_id()}
+                        for a in data.get('apps', []) if a.get('url') and (a['id'] in mine or a['id'] == config.app_id())]
+    return info
+
+
+_schema_ready = None  # the database already checked
+
+
+def ensure_schema(conn):
+    """Columns famkit keeps in the app's own tables (added on first use, so no app migration is needed)."""
+    global _schema_ready
+    if _schema_ready == config.db.DB_PATH:
+        return
+    if 'hub_apps' not in {c[1] for c in conn.execute('PRAGMA table_info(families)')}:
+        conn.execute('ALTER TABLE families ADD COLUMN hub_apps TEXT')  # apps of the family and who may use which (JSON)
+    _schema_ready = config.db.DB_PATH
 
 
 class Unavailable(Exception):
@@ -185,6 +216,10 @@ def apply_family(conn, snap):
         if uid not in wanted:
             _remove_member(conn, fid, uid)
     hooks.apply_people(conn, fid, snap)
+    ensure_schema(conn)
+    conn.execute('UPDATE families SET hub_apps = ? WHERE id = ?', (json.dumps({
+        'apps': [{k: a.get(k) for k in ('id', 'name', 'url')} for a in snap.get('apps') or []],
+        'access': {str(m['hub_id']): m.get('apps') or [] for m in snap['members']}}), fid))
     _bump(conn, fid)
     return fid
 
@@ -205,10 +240,13 @@ def sync_family(hub_id):
     """Bring the local copy of one weHub family up to date. False when this app does not have that family."""
     with _sync_lock:  # the periodic refresh and a message from weHub must not apply the same family twice at once
         with config.db.transaction() as conn:
-            f = conn.execute('SELECT hub_version FROM families WHERE hub_id = ?', (hub_id,)).fetchone()
+            ensure_schema(conn)
+            f = conn.execute('SELECT hub_version, hub_apps FROM families WHERE hub_id = ?', (hub_id,)).fetchone()
         if not f:
             return False
-        snap = _call('GET', f"/families/{hub_id}?version={f['hub_version'] or ''}")
+        # Without the apps yet (copied by an older version): the whole snapshot, once
+        version = f['hub_version'] if f['hub_apps'] and f['hub_version'] is not None else ''
+        snap = _call('GET', f"/families/{hub_id}?version={version}")
         if snap is None:
             print(f'[hub] family {hub_id} no longer exists in weHub: local copy kept as it is', flush=True)
             return True

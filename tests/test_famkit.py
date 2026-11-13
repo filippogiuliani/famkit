@@ -21,12 +21,14 @@ def db(tmp_path, monkeypatch):
     path = str(tmp_path / 'test.db')
     conn = sqlite3.connect(path)
     conn.executescript('''
-        CREATE TABLE families (id INTEGER PRIMARY KEY, name TEXT, hub_id INTEGER, hub_version INTEGER);
+        CREATE TABLE families (id INTEGER PRIMARY KEY, name TEXT, hub_id INTEGER, hub_version INTEGER, version INTEGER);
         CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, name TEXT, hub_id INTEGER, password_hash TEXT,
-                            totp_secret TEXT);
-        CREATE TABLE members (family_id INTEGER, user_id INTEGER, role TEXT, created_at TEXT DEFAULT (datetime('now')));
-        INSERT INTO families VALUES (1, 'Rossi', 7, 1);
-        INSERT INTO users VALUES (1, 'fil@x.it', 'Fil', 10, 'secret', 'totp'), (2, 'sara@x.it', 'Sara', 11, '!', NULL);
+                            totp_secret TEXT, email_verified INTEGER DEFAULT 0, session_version INTEGER DEFAULT 1);
+        CREATE TABLE members (family_id INTEGER, user_id INTEGER, role TEXT, created_at TEXT DEFAULT (datetime('now')),
+                              PRIMARY KEY (family_id, user_id));
+        INSERT INTO families VALUES (1, 'Rossi', 7, 1, 0);
+        INSERT INTO users (id, email, name, hub_id, password_hash, totp_secret) VALUES
+            (1, 'fil@x.it', 'Fil', 10, 'secret', 'totp'), (2, 'sara@x.it', 'Sara', 11, '!', NULL);
         INSERT INTO members (family_id, user_id, role) VALUES (1, 1, 'admin'), (1, 2, 'member');
     ''')
     conn.commit()
@@ -151,7 +153,24 @@ def test_changed_refreshes_the_family_at_once(db, client, monkeypatch):
     assert client.post('/api/hub/changed', json={'family': 7}).status_code == 401
     assert client.post('/api/hub/changed', json={'family': 'x'}, headers=h).status_code == 400
     assert client.post('/api/hub/changed', json={'family': 7}, headers=h).get_json() == {'ok': True, 'known': True}
-    assert asked == ['/families/7?version=1'] and applied == [5]
+    assert asked == ['/families/7?version='] and applied == [5]   # no apps copied yet: the whole snapshot
     # A family this app has never seen: nothing to do (it arrives with the first sign-in)
     assert client.post('/api/hub/changed', json={'family': 8}, headers=h).get_json() == {'ok': True, 'known': False}
     assert len(asked) == 1
+
+
+def test_app_switcher(db):
+    snap = {'hub_id': 7, 'name': 'Rossi', 'version': 3,
+            'members': [{'hub_id': 10, 'name': 'Fil', 'email': 'fil@x.it', 'role': 'admin', 'apps': ['dotrack', 'testapp']},
+                        {'hub_id': 11, 'name': 'Sara', 'email': 'sara@x.it', 'role': 'member', 'apps': ['testapp']}],
+            'people': [],
+            'apps': [{'id': 'dotrack', 'name': 'doTrack', 'url': 'https://do.x.it', 'description': {}},
+                     {'id': 'testapp', 'name': 'testApp', 'url': 'https://test.x.it'},
+                     {'id': 'patrack', 'name': 'paTrack', 'url': 'https://pa.x.it'}]}
+    hub.use(types.SimpleNamespace(apply_people=lambda *a: None, on_member_removed=lambda *a: None))
+    with db.transaction() as conn:
+        hub.apply_family(conn, snap)
+    fil = hub.public_info(1, 1)
+    assert fil['url'] == 'http://wehub.test' and [(a['id'], a['current']) for a in fil['apps']] == [('dotrack', False), ('testapp', True)]
+    assert [a['id'] for a in hub.public_info(1, 2)['apps']] == ['testapp']
+    assert hub.public_info()['apps'] == []
