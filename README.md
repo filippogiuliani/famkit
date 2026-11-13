@@ -30,6 +30,11 @@ commit (and its tests pass).
 | `hub` | the link with weHub: sign-in, family copies, refresh, import/merge endpoints; apps asking each other | doTrack, eaTrack, paTrack |
 | `oidc` | sign-in with OpenID Connect providers (Pocket ID, Google…) | doTrack, eaTrack, paTrack |
 
+**`ui/`** — shared by the frontends (Svelte 5), imported through a Vite alias (`$famkit` → `backend/famkit/ui`):
+`AppSwitcher.svelte` (the menu to go from one family app to another, with its own short texts in it/en/es/pt/fr/de)
+and `apps.js` (`appIcons`: the apps' icons, bundled by Vite). The Dockerfiles copy `backend/famkit/ui` into the
+frontend build stage.
+
 What differs between the apps stays in the app: `hub_hooks.py` (who the app's people are, what happens when a
 member leaves, how families are merged), registered with `hub.use(hub_hooks)`, and `oidc.use(auth, tr, create_user)`.
 
