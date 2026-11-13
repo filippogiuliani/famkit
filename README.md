@@ -1,5 +1,7 @@
 # famkit – shared code of the family apps
 
+> **Disclaimer / Esclusione di responsabilità.** famkit is provided *as is*, without any warranty: the authors accept **no responsibility or liability** for data loss, security problems, unauthorised access, failed backups or any other consequence of using it. Read [DISCLAIMER.md](DISCLAIMER.md) before using it with real data. · Il software è fornito *così com'è*, senza garanzie: gli autori **non hanno alcuna responsabilità**. Leggi [DISCLAIMER.md](DISCLAIMER.md).
+
 The code that **weHub**, **doTrack**, **eaTrack** and **paTrack** have in common, kept in one place instead of four
 copies that drift apart. Each app includes this repository as a git submodule in `backend/famkit`:
 
@@ -13,6 +15,9 @@ cd backend/famkit && git pull && cd ../.. && git add backend/famkit && git commi
 
 The submodule points to a fixed commit: updating famkit never changes an app until that app is moved to the new
 commit (and its tests pass).
+
+> **Made with AI.** Like the apps that use it, famkit was written by an AI assistant (Anthropic's Claude) and checked
+> with automated tests; review it before exposing the apps to the internet.
 
 ## Modules
 
