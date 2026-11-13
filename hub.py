@@ -193,16 +193,46 @@ def apply_family(conn, snap):
 
 def sync_all():
     with config.db.transaction() as conn:
-        fams = conn.execute('SELECT id, hub_id, hub_version FROM families WHERE hub_id IS NOT NULL').fetchall()
+        fams = conn.execute('SELECT hub_id FROM families WHERE hub_id IS NOT NULL').fetchall()
     for f in fams:
-        snap = _call('GET', f"/families/{f['hub_id']}?version={f['hub_version'] or ''}")
-        if snap is None:
-            print(f"[hub] family {f['hub_id']} no longer exists in weHub: local copy kept as it is", flush=True)
-            continue
-        if snap.get('unchanged'):
-            continue
+        sync_family(f['hub_id'])
+
+
+_sync_lock = threading.Lock()
+
+
+def sync_family(hub_id):
+    """Bring the local copy of one weHub family up to date. False when this app does not have that family."""
+    with _sync_lock:  # the periodic refresh and a message from weHub must not apply the same family twice at once
         with config.db.transaction() as conn:
-            apply_family(conn, snap)
+            f = conn.execute('SELECT hub_version FROM families WHERE hub_id = ?', (hub_id,)).fetchone()
+        if not f:
+            return False
+        snap = _call('GET', f"/families/{hub_id}?version={f['hub_version'] or ''}")
+        if snap is None:
+            print(f'[hub] family {hub_id} no longer exists in weHub: local copy kept as it is', flush=True)
+            return True
+        if not snap.get('unchanged'):
+            with config.db.transaction() as conn:
+                apply_family(conn, snap)
+        return True
+
+
+@bp.post('/hub/changed')
+def changed():
+    """weHub: {family: weHub id} changed (members, roles, people, access). Refreshed now, not at the next round."""
+    if not _key_ok():
+        return jsonify(error='Unknown key'), 401
+    try:
+        hub_id = int((request.get_json(silent=True) or {}).get('family'))
+    except (TypeError, ValueError):
+        return jsonify(error='Invalid request'), 400
+    try:
+        known = sync_family(hub_id)
+    except Unavailable as e:
+        print(f'[hub] refresh after a change: {e}', flush=True)
+        return jsonify(error='weHub not reachable'), 502
+    return jsonify(ok=True, known=known)
 
 
 def start_sync():

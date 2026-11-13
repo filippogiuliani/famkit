@@ -137,3 +137,21 @@ def test_env_prefix_and_backups(db, monkeypatch):
 
 def test_web_helpers():
     assert web.text('  ciao  ', 3) == 'cia' and web.placeholders([1, 2, 3]) == '?,?,?'
+
+
+def test_changed_refreshes_the_family_at_once(db, client, monkeypatch):
+    applied, asked = [], []
+    monkeypatch.setattr(hub, 'apply_family', lambda conn, snap: applied.append(snap['version']))
+
+    def call(method, path, payload=None):
+        asked.append(path)
+        return {'unchanged': True} if 'version=5' in path else {'hub_id': 7, 'version': 5}
+    monkeypatch.setattr(hub, '_call', call)
+    h = {'Authorization': 'Bearer ' + KEY}
+    assert client.post('/api/hub/changed', json={'family': 7}).status_code == 401
+    assert client.post('/api/hub/changed', json={'family': 'x'}, headers=h).status_code == 400
+    assert client.post('/api/hub/changed', json={'family': 7}, headers=h).get_json() == {'ok': True, 'known': True}
+    assert asked == ['/families/7?version=1'] and applied == [5]
+    # A family this app has never seen: nothing to do (it arrives with the first sign-in)
+    assert client.post('/api/hub/changed', json={'family': 8}, headers=h).get_json() == {'ok': True, 'known': False}
+    assert len(asked) == 1
