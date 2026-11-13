@@ -86,8 +86,10 @@ def public_info(family_id=None, user_id=None):
     if family_id and user_id:
         with config.db.transaction() as conn:
             ensure_schema(conn)
-            f = conn.execute('SELECT hub_apps FROM families WHERE id = ?', (family_id,)).fetchone()
+            f = conn.execute('SELECT hub_id, hub_apps FROM families WHERE id = ?', (family_id,)).fetchone()
             u = conn.execute('SELECT hub_id FROM users WHERE id = ?', (user_id,)).fetchone()
+        if f and f['hub_id'] and not f['hub_apps']:
+            refresh_soon(f['hub_id'])   # copied by an older version: get the apps now, not at the next round
         try:
             data = json.loads(f['hub_apps']) if f and f['hub_apps'] else {}
         except ValueError:
@@ -256,6 +258,24 @@ def sync_family(hub_id):
         return True
 
 
+_asked = {}  # weHub family id -> when refresh_soon() last asked for it
+
+
+def refresh_soon(hub_id):
+    """Refresh one family in the background (at most once a minute per family)."""
+    now = time.monotonic()
+    if now - _asked.get(hub_id, -1e9) < 60:
+        return
+    _asked[hub_id] = now
+
+    def run():
+        try:
+            sync_family(hub_id)
+        except Exception as e:  # weHub down: the periodic refresh will try again
+            print(f'[hub] refresh of family {hub_id}: {e}', flush=True)
+    threading.Thread(target=run, daemon=True, name='hub-refresh').start()
+
+
 @bp.post('/hub/changed')
 def changed():
     """weHub: {family: weHub id} changed (members, roles, people, access). Refreshed now, not at the next round."""
@@ -278,8 +298,10 @@ def start_sync():
         return
 
     def loop():
+        delay = 3   # the first round right after start: an update may have added things to copy (e.g. the apps)
         while True:
-            time.sleep(INTERVAL)
+            time.sleep(delay)
+            delay = INTERVAL
             try:
                 sync_all()
             except Unavailable as e:

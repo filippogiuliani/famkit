@@ -174,3 +174,13 @@ def test_app_switcher(db):
     assert fil['url'] == 'http://wehub.test' and [(a['id'], a['current']) for a in fil['apps']] == [('dotrack', False), ('testapp', True)]
     assert [a['id'] for a in hub.public_info(1, 2)['apps']] == ['testapp']
     assert hub.public_info()['apps'] == []
+
+
+def test_missing_apps_are_fetched_at_once(db, monkeypatch):
+    """A family copied by an older version has no apps yet: asking /api/me starts a refresh (once a minute)."""
+    started = []
+    monkeypatch.setattr(hub, '_asked', {})
+    monkeypatch.setattr(hub.threading, 'Thread', lambda target, **kw: type('T', (), {'start': lambda self: started.append(target)})())
+    assert hub.public_info(1, 1)['apps'] == []
+    assert hub.public_info(1, 1)['apps'] == []
+    assert len(started) == 1
