@@ -38,3 +38,31 @@ def apply(environ=None):
     if environ is None:
         _done = True
     return found
+
+
+def new_ident(name):
+    """dotrack_remind → kooka_remind, eatrack_plan → wallaby_plan (table and column names, lower case)."""
+    return re.sub('|'.join(IDS), lambda m: IDS[m.group(0)], name)
+
+
+def move_file(old, new):
+    """The app's database file under its old name (dotrack.db): renamed once, with its -wal and -shm."""
+    if os.path.exists(old) and not os.path.exists(new):
+        for suffix in ('', '-wal', '-shm'):
+            if os.path.exists(old + suffix):
+                os.rename(old + suffix, new + suffix)
+        print(f'[famkit] database renamed: {os.path.basename(old)} → {os.path.basename(new)}', flush=True)
+
+
+def rename_schema(conn):
+    """Tables and columns named after the old app names get the new ones. Run before creating the schema, so that
+    CREATE TABLE IF NOT EXISTS / ADD COLUMN find them already there."""
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    for table in tables:
+        new = new_ident(table)
+        if new != table:
+            conn.execute(f'ALTER TABLE "{table}" RENAME TO "{new}"')
+            table = new
+        for col in [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]:
+            if new_ident(col) != col:
+                conn.execute(f'ALTER TABLE "{table}" RENAME COLUMN "{col}" TO "{new_ident(col)}"')

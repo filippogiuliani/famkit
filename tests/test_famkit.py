@@ -194,3 +194,21 @@ def test_old_environment_names_still_work():
     assert env['WOMBAT_APP_KOOKA_URL'] == 'https://k' and env['WOMBAT_APPS'] == 'kooka,wallaby,pelican'
     assert env['PELICAN_HUB_KEY'] == 'x' and env['KOOKA_HUB_KEY'] == 'new'      # the new name wins
     assert 'QUOKKA_THING' not in found and sorted(found) == ['PATRACK_HUB_KEY', 'WEHUB_APPS', 'WEHUB_APP_DOTRACK_URL']
+
+
+def test_old_database_names_are_renamed(tmp_path):
+    from famkit import legacy
+    old, new = tmp_path / 'dotrack.db', tmp_path / 'kooka.db'
+    conn = sqlite3.connect(old)
+    conn.execute('CREATE TABLE documents (id INTEGER, dotrack_remind INTEGER, eatrack_plan INTEGER)')
+    conn.execute('CREATE TABLE dotrack_links (id INTEGER)')
+    conn.execute('INSERT INTO documents VALUES (1, 7, 1)')
+    conn.commit(); conn.close()
+    legacy.move_file(str(old), str(new))
+    assert new.exists() and not old.exists()
+    legacy.move_file(str(old), str(new))                  # nothing to do the second time
+    conn = sqlite3.connect(new)
+    legacy.rename_schema(conn); legacy.rename_schema(conn)
+    assert [r[1] for r in conn.execute('PRAGMA table_info(documents)')] == ['id', 'kooka_remind', 'wallaby_plan']
+    assert conn.execute('SELECT kooka_remind FROM documents').fetchone()[0] == 7
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'kooka_links'").fetchone()
