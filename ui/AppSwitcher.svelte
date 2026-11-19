@@ -1,6 +1,6 @@
 <script>
-  // Switching between the family apps (weHub mode): weHub's home and the apps this person may use in this family.
-  // Shared by doTrack, eaTrack and paTrack (famkit/ui). The list comes from /api/me → hub.apps (see famkit/hub.py).
+  // Switching between the family apps (Wombat mode): Wombat's home and the apps this person may use in this family.
+  // Shared by Kooka, Wallaby and Pelican (famkit/ui). The list comes from /api/me → hub.apps (see famkit/hub.py).
   //   <AppSwitcher hub={app.me.hub} lang={language.id} label />
   import { appIcons } from './apps.js';
 
@@ -17,7 +17,7 @@
 
   let open = $state(false);
   let root;
-  // Right after an update the server may not have the list yet (it is fetching it from weHub): ask once more shortly
+  // Right after an update the server may not have the list yet (it is fetching it from Wombat): ask once more shortly
   let later = $state(null);
   $effect(() => {
     if (!hub || hub.apps?.length || later) return;
@@ -51,8 +51,8 @@
     {#if open}
       <div class="menu" role="menu">
         <a class="item" role="menuitem" href={hub.url}>
-          <img src={appIcons.wehub} alt="" width="28" height="28" />
-          <span><b>weHub</b><small>{tx.home}</small></span>
+          <img src={appIcons.wombat} alt="" width="28" height="28" />
+          <span><b>Wombat</b><small>{tx.home}</small></span>
         </a>
         {#each apps as a (a.id)}
           <a class="item" class:current={a.current} role="menuitem" href={a.current ? '#/' : a.url}

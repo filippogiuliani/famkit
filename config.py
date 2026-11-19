@@ -1,8 +1,8 @@
 """What famkit.configure() was told by the app."""
 import os
 
-PREFIX = ''   # 'DOTRACK'
-NAME = ''     # 'doTrack'
+PREFIX = ''   # 'KOOKA'
+NAME = ''     # 'Kooka'
 db = None     # the app's db module
 
 
@@ -14,5 +14,5 @@ def env(key, default=''):
 
 
 def app_id():
-    """'dotrack': how weHub calls this app."""
+    """'kooka': how Wombat calls this app."""
     return PREFIX.lower()

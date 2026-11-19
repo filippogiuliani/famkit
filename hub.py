@@ -1,29 +1,29 @@
-"""weHub link: the family (members, roles, people, who may use this app) is defined in weHub.
+"""Wombat link: the family (members, roles, people, who may use this app) is defined in Wombat.
 
 Configuration (all optional; without them the app works on its own as before):
-  {PREFIX}_HUB_URL          weHub's address as this server reaches it, e.g. http://wehub:3004
-  {PREFIX}_HUB_KEY          shared key, the same as WEHUB_APP_{PREFIX}_KEY in weHub
-  {PREFIX}_HUB_PUBLIC_URL   weHub's address for people (links), default {PREFIX}_HUB_URL
+  {PREFIX}_HUB_URL          Wombat's address as this server reaches it, e.g. http://wombat:3004
+  {PREFIX}_HUB_KEY          shared key, the same as WOMBAT_APP_{PREFIX}_KEY in Wombat
+  {PREFIX}_HUB_PUBLIC_URL   Wombat's address for people (links), default {PREFIX}_HUB_URL
   {PREFIX}_HUB_SYNC_SECONDS how often families are refreshed (default 120)
 
 When on:
-- sign-in only through the OIDC provider (the same Pocket ID as weHub); after it weHub says who the person is and
+- sign-in only through the OIDC provider (the same Pocket ID as Wombat); after it Wombat says who the person is and
   which families they may use this app in. Those families are copied here (members, roles, people).
-- the family, its members and people are changed only in weHub: those endpoints answer 409 here.
-- families are refreshed every couple of minutes; if weHub is down, people who already signed in go on working.
-- weHub reads this app's families once (GET /api/hub/export) to import them, then this app adopts its own rows.
+- the family, its members and people are changed only in Wombat: those endpoints answer 409 here.
+- families are refreshed every couple of minutes; if Wombat is down, people who already signed in go on working.
+- Wombat reads this app's families once (GET /api/hub/export) to import them, then this app adopts its own rows.
 
 What differs between the apps (who "people" are, what happens when a member leaves, how data is merged) is in the
 app's hub_hooks module, registered with use(hub_hooks):
-  apply_people(conn, family_id, snapshot)       make the app's people match weHub's
-  export_people(conn, family_id) -> [...]       the app's people, for weHub's import
+  apply_people(conn, family_id, snapshot)       make the app's people match Wombat's
+  export_people(conn, family_id) -> [...]       the app's people, for Wombat's import
   on_member_removed(conn, family_id, user_id)   tidy up what pointed to a member who left
   merge_data(conn, src, dst, report)            move a family's data into another (see merge())
   bump(conn, family_id)                         optional: something changed (default db.bump, when it exists)
 
-Apps asking each other (paTrack → doTrack, eaTrack → doTrack…) always go through weHub, which holds every app's key
+Apps asking each other (Pelican → Kooka, Wallaby → Kooka…) always go through Wombat, which holds every app's key
 and checks that the person may use both apps in that family:
-  ask('dotrack', 'POST', '/deadlines', family_hub_id, user_hub_id, payload)   in the asking app
+  ask('kooka', 'POST', '/deadlines', family_hub_id, user_hub_id, payload)   in the asking app
   @service('/deadlines', methods=['POST'])                                     in the answering app"""
 import functools
 import hmac
@@ -72,17 +72,17 @@ def enabled():
 
 
 def guard():
-    """For endpoints that change the family: in weHub mode they are not used here."""
+    """For endpoints that change the family: in Wombat mode they are not used here."""
     if enabled():
-        abort(409, 'The family is managed in weHub')
+        abort(409, 'The family is managed in Wombat')
 
 
 def public_info(family_id=None, user_id=None):
-    """For /api/me: weHub's address and, for a signed-in person, the family apps they may use (the app switcher):
-    apps: [{id, name, url, current}], this app included. None without weHub."""
+    """For /api/me: Wombat's address and, for a signed-in person, the family apps they may use (the app switcher):
+    apps: [{id, name, url, current}], this app included. None without Wombat."""
     if not enabled():
         return None
-    info = {'url': PUBLIC_URL or URL, 'name': 'weHub', 'apps': []}
+    info = {'url': PUBLIC_URL or URL, 'name': 'Wombat', 'apps': []}
     if family_id and user_id:
         with config.db.transaction() as conn:
             ensure_schema(conn)
@@ -122,7 +122,7 @@ class NoAccess(Exception):
 
 
 class HubDown(Unavailable):
-    """weHub itself could not be reached (ask())."""
+    """Wombat itself could not be reached (ask())."""
 
 
 def _call(method, path, payload=None):
@@ -134,7 +134,7 @@ def _call(method, path, payload=None):
     if r.status_code == 404:
         return None
     if r.status_code != 200:
-        raise Unavailable(f'weHub answered {r.status_code}')
+        raise Unavailable(f'Wombat answered {r.status_code}')
     return r.json()
 
 
@@ -147,8 +147,8 @@ def _key_ok():
 # ---------- Sign-in ----------
 
 def sign_in(provider, issuer, subject, email, email_verified, name):
-    """The local user for someone who just signed in with the provider, their families updated from weHub.
-    Raises NoAccess (not in a family that may use this app) or Unavailable (weHub down and never seen before)."""
+    """The local user for someone who just signed in with the provider, their families updated from Wombat.
+    Raises NoAccess (not in a family that may use this app) or Unavailable (Wombat down and never seen before)."""
     db = config.db
     try:
         who = _call('POST', '/whoami', {'issuer': issuer, 'subject': subject, 'email': email,
@@ -173,7 +173,7 @@ def sign_in(provider, issuer, subject, email, email_verified, name):
 
 
 def _user(conn, u):
-    """Local user id for a weHub user (by weHub id, then by email), created when missing."""
+    """Local user id for a Wombat user (by Wombat id, then by email), created when missing."""
     r = conn.execute('SELECT id FROM users WHERE hub_id = ?', (u['hub_id'],)).fetchone() or \
         conn.execute('SELECT id FROM users WHERE email = ? AND hub_id IS NULL', (u['email'],)).fetchone()
     if r:
@@ -196,7 +196,7 @@ def _remove_member(conn, family_id, user_id):
 
 
 def apply_family(conn, snap):
-    """Make the local copy of a weHub family match the snapshot. Returns the local family id."""
+    """Make the local copy of a Wombat family match the snapshot. Returns the local family id."""
     f = conn.execute('SELECT id FROM families WHERE hub_id = ?', (snap['hub_id'],)).fetchone()
     if not f and snap.get('local_id'):
         f = conn.execute('SELECT id FROM families WHERE id = ? AND hub_id IS NULL', (snap['local_id'],)).fetchone()
@@ -239,8 +239,8 @@ _sync_lock = threading.Lock()
 
 
 def sync_family(hub_id):
-    """Bring the local copy of one weHub family up to date. False when this app does not have that family."""
-    with _sync_lock:  # the periodic refresh and a message from weHub must not apply the same family twice at once
+    """Bring the local copy of one Wombat family up to date. False when this app does not have that family."""
+    with _sync_lock:  # the periodic refresh and a message from Wombat must not apply the same family twice at once
         with config.db.transaction() as conn:
             ensure_schema(conn)
             f = conn.execute('SELECT hub_version, hub_apps FROM families WHERE hub_id = ?', (hub_id,)).fetchone()
@@ -250,7 +250,7 @@ def sync_family(hub_id):
         version = f['hub_version'] if f['hub_apps'] and f['hub_version'] is not None else ''
         snap = _call('GET', f"/families/{hub_id}?version={version}")
         if snap is None:
-            print(f'[hub] family {hub_id} no longer exists in weHub: local copy kept as it is', flush=True)
+            print(f'[hub] family {hub_id} no longer exists in Wombat: local copy kept as it is', flush=True)
             return True
         if not snap.get('unchanged'):
             with config.db.transaction() as conn:
@@ -258,7 +258,7 @@ def sync_family(hub_id):
         return True
 
 
-_asked = {}  # weHub family id -> when refresh_soon() last asked for it
+_asked = {}  # Wombat family id -> when refresh_soon() last asked for it
 
 
 def refresh_soon(hub_id):
@@ -271,14 +271,14 @@ def refresh_soon(hub_id):
     def run():
         try:
             sync_family(hub_id)
-        except Exception as e:  # weHub down: the periodic refresh will try again
+        except Exception as e:  # Wombat down: the periodic refresh will try again
             print(f'[hub] refresh of family {hub_id}: {e}', flush=True)
     threading.Thread(target=run, daemon=True, name='hub-refresh').start()
 
 
 @bp.post('/hub/changed')
 def changed():
-    """weHub: {family: weHub id} changed (members, roles, people, access). Refreshed now, not at the next round."""
+    """Wombat: {family: Wombat id} changed (members, roles, people, access). Refreshed now, not at the next round."""
     if not _key_ok():
         return jsonify(error='Unknown key'), 401
     try:
@@ -289,7 +289,7 @@ def changed():
         known = sync_family(hub_id)
     except Unavailable as e:
         print(f'[hub] refresh after a change: {e}', flush=True)
-        return jsonify(error='weHub not reachable'), 502
+        return jsonify(error='Wombat not reachable'), 502
     return jsonify(ok=True, known=known)
 
 
@@ -305,15 +305,15 @@ def start_sync():
             try:
                 sync_all()
             except Unavailable as e:
-                print(f'[hub] weHub not reachable: {e}', flush=True)
+                print(f'[hub] Wombat not reachable: {e}', flush=True)
             except Exception:
                 traceback.print_exc()
 
     threading.Thread(target=loop, daemon=True, name='hub-sync').start()
-    print(f'[hub] family managed in weHub ({URL}), refreshed every {INTERVAL}s', flush=True)
+    print(f'[hub] family managed in Wombat ({URL}), refreshed every {INTERVAL}s', flush=True)
 
 
-# ---------- For weHub: what this app has (import) ----------
+# ---------- For Wombat: what this app has (import) ----------
 
 @bp.get('/hub/export')
 def export():
@@ -329,12 +329,12 @@ def export():
     return jsonify(families=out)
 
 
-# ---------- For weHub: merging families made separately before weHub ----------
+# ---------- For Wombat: merging families made separately before Wombat ----------
 
 @bp.post('/hub/merge')
 def merge():
     """{into: local family id, families: [local family ids]}: move everything of those families into `into`.
-    Called by weHub's import when two people had made separate families before. A backup of the database is made
+    Called by Wombat's import when two people had made separate families before. A backup of the database is made
     first; nothing is deleted except the emptied families (checked: if any row still belongs to one, nothing is done)."""
     if not _key_ok():
         return jsonify(error='Unknown key'), 401
@@ -352,7 +352,7 @@ def merge():
         if into not in found or any(s not in found for s in sources):
             return jsonify(error='Family not found'), 404
         if any(found[s]['hub_id'] for s in sources):
-            return jsonify(error='A family linked to weHub cannot be merged into another'), 409
+            return jsonify(error='A family linked to Wombat cannot be merged into another'), 409
     from . import backup
     backup.create_backup('pre-merge')
     report = {}
@@ -392,13 +392,13 @@ def count(report, key, n):
         report[key] = report.get(key, 0) + n
 
 
-# ---------- Apps asking each other, through weHub ----------
+# ---------- Apps asking each other, through Wombat ----------
 
 PRIVATE_USER_FIELDS = ('password_hash', 'totp_secret', 'totp_pending')
 
 
 def service(rule, **options):
-    """Route for requests another app makes through weHub: /api/hub/families/<weHub family id><rule>?user=<weHub id>.
+    """Route for requests another app makes through Wombat: /api/hub/families/<Wombat family id><rule>?user=<Wombat id>.
     Checks this app's key, then sets g.family_id, g.user (the member who asked; when they do not use this app, the
     family's first admin), g.role, g.via_token = True, g.via_hub = True, like a normal signed-in request.
     The view gets the URL variables of `rule` (not the family id). Register with app.register_blueprint(hub.bp)."""
@@ -429,7 +429,7 @@ def service(rule, **options):
 
 
 class AskError(Exception):
-    """The other app (or weHub) said no: .status (HTTP) and .message, ready to show."""
+    """The other app (or Wombat) said no: .status (HTTP) and .message, ready to show."""
 
     def __init__(self, status, message):
         super().__init__(message)
@@ -437,11 +437,11 @@ class AskError(Exception):
 
 
 def ask(app_id, method, path, family_hub_id, user_hub_id, payload=None, timeout=10):
-    """Ask another family app something through weHub. Returns its JSON answer; raises AskError (weHub or the other
-    app refused: 400/403/404/409, with its message), HubDown (weHub cannot be reached) or Unavailable (the other app
+    """Ask another family app something through Wombat. Returns its JSON answer; raises AskError (Wombat or the other
+    app refused: 400/403/404/409, with its message), HubDown (Wombat cannot be reached) or Unavailable (the other app
     cannot be reached or answered with an error)."""
     if not enabled():
-        raise Unavailable('weHub is not configured')
+        raise Unavailable('Wombat is not configured')
     try:
         r = requests.request(method, f'{URL}/api/service/apps/{app_id}/families/{family_hub_id}{path}',
                              params={'user': user_hub_id}, json=payload, timeout=timeout, allow_redirects=False,
@@ -460,7 +460,7 @@ def ask(app_id, method, path, family_hub_id, user_hub_id, payload=None, timeout=
 
 
 def family_ids(conn, family_id):
-    """(weHub family id, weHub user id of the current user) for asking another app, or None when not linked."""
+    """(Wombat family id, Wombat user id of the current user) for asking another app, or None when not linked."""
     f = conn.execute('SELECT hub_id FROM families WHERE id = ?', (family_id,)).fetchone()
     u = conn.execute('SELECT hub_id FROM users WHERE id = ?', (g.user['id'],)).fetchone()
     if not f or not f['hub_id'] or not u or not u['hub_id']:

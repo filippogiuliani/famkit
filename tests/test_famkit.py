@@ -1,4 +1,4 @@
-"""famkit on a minimal app: the service routes other apps reach through weHub, and ask()."""
+"""famkit on a minimal app: the service routes other apps reach through Wombat, and ask()."""
 import os
 import sqlite3
 import sys
@@ -45,7 +45,7 @@ def db(tmp_path, monkeypatch):
             c.close()
 
     mod = types.SimpleNamespace(DATA_DIR=str(tmp_path), DB_PATH=path, transaction=transaction)
-    monkeypatch.setenv('TESTAPP_HUB_URL', 'http://wehub.test')
+    monkeypatch.setenv('TESTAPP_HUB_URL', 'http://wombat.test')
     monkeypatch.setenv('TESTAPP_HUB_KEY', KEY)
     famkit.configure('TESTAPP', 'testApp', mod)
     return mod
@@ -99,32 +99,32 @@ def test_ask(db, monkeypatch):
     calls = []
     answer = [Resp(201, {'ok': True})]
     monkeypatch.setattr(requests, 'request', lambda *a, **kw: calls.append((a, kw)) or answer[0])
-    assert hub.ask('dotrack', 'PUT', '/deadlines/patrack-3', 7, 10, {'title': 'x'}) == {'ok': True}
+    assert hub.ask('kooka', 'PUT', '/deadlines/pelican-3', 7, 10, {'title': 'x'}) == {'ok': True}
     (method, url), kw = calls[0]
-    assert method == 'PUT' and url == 'http://wehub.test/api/service/apps/dotrack/families/7/deadlines/patrack-3'
+    assert method == 'PUT' and url == 'http://wombat.test/api/service/apps/kooka/families/7/deadlines/pelican-3'
     assert kw['params'] == {'user': 10} and kw['json'] == {'title': 'x'}
     assert kw['headers']['Authorization'] == 'Bearer ' + KEY and kw['headers']['User-Agent'] == 'testApp'
     answer[0] = Resp(403, {'error': 'This app may not ask that'})
     with pytest.raises(hub.AskError) as e:
-        hub.ask('dotrack', 'GET', '/x', 7, 10)
+        hub.ask('kooka', 'GET', '/x', 7, 10)
     assert e.value.status == 403 and e.value.message == 'This app may not ask that'
-    answer[0] = Resp(502, {'error': 'doTrack is not reachable'})
+    answer[0] = Resp(502, {'error': 'Kooka is not reachable'})
     with pytest.raises(hub.Unavailable) as e:
-        hub.ask('dotrack', 'GET', '/x', 7, 10)
+        hub.ask('kooka', 'GET', '/x', 7, 10)
     assert not isinstance(e.value, hub.HubDown)
     answer[0] = Resp(500, None)
     with pytest.raises(hub.Unavailable):
-        hub.ask('dotrack', 'GET', '/x', 7, 10)
+        hub.ask('kooka', 'GET', '/x', 7, 10)
 
     def down(*a, **kw):
         raise requests.ConnectionError('refused')
     monkeypatch.setattr(requests, 'request', down)
     with pytest.raises(hub.HubDown):
-        hub.ask('dotrack', 'GET', '/x', 7, 10)
+        hub.ask('kooka', 'GET', '/x', 7, 10)
 
 
 def test_env_prefix_and_backups(db, monkeypatch):
-    assert hub.URL == 'http://wehub.test' and hub.enabled()
+    assert hub.URL == 'http://wombat.test' and hub.enabled()
     monkeypatch.setenv('TESTAPP_BACKUP_KEEP', '2')
     names = set()
     for i in range(3):
@@ -161,17 +161,17 @@ def test_changed_refreshes_the_family_at_once(db, client, monkeypatch):
 
 def test_app_switcher(db):
     snap = {'hub_id': 7, 'name': 'Rossi', 'version': 3,
-            'members': [{'hub_id': 10, 'name': 'Fil', 'email': 'fil@x.it', 'role': 'admin', 'apps': ['dotrack', 'testapp']},
+            'members': [{'hub_id': 10, 'name': 'Fil', 'email': 'fil@x.it', 'role': 'admin', 'apps': ['kooka', 'testapp']},
                         {'hub_id': 11, 'name': 'Sara', 'email': 'sara@x.it', 'role': 'member', 'apps': ['testapp']}],
             'people': [],
-            'apps': [{'id': 'dotrack', 'name': 'doTrack', 'url': 'https://do.x.it', 'description': {}},
+            'apps': [{'id': 'kooka', 'name': 'Kooka', 'url': 'https://do.x.it', 'description': {}},
                      {'id': 'testapp', 'name': 'testApp', 'url': 'https://test.x.it'},
-                     {'id': 'patrack', 'name': 'paTrack', 'url': 'https://pa.x.it'}]}
+                     {'id': 'pelican', 'name': 'Pelican', 'url': 'https://pa.x.it'}]}
     hub.use(types.SimpleNamespace(apply_people=lambda *a: None, on_member_removed=lambda *a: None))
     with db.transaction() as conn:
         hub.apply_family(conn, snap)
     fil = hub.public_info(1, 1)
-    assert fil['url'] == 'http://wehub.test' and [(a['id'], a['current']) for a in fil['apps']] == [('dotrack', False), ('testapp', True)]
+    assert fil['url'] == 'http://wombat.test' and [(a['id'], a['current']) for a in fil['apps']] == [('kooka', False), ('testapp', True)]
     assert [a['id'] for a in hub.public_info(1, 2)['apps']] == ['testapp']
     assert hub.public_info()['apps'] == []
 
@@ -184,3 +184,13 @@ def test_missing_apps_are_fetched_at_once(db, monkeypatch):
     assert hub.public_info(1, 1)['apps'] == []
     assert hub.public_info(1, 1)['apps'] == []
     assert len(started) == 1
+
+
+def test_old_environment_names_still_work():
+    from famkit import legacy
+    env = {'WEHUB_APP_DOTRACK_URL': 'https://k', 'WEHUB_APPS': 'dotrack,eatrack,patrack', 'PATRACK_HUB_KEY': 'x',
+           'KOOKA_HUB_KEY': 'new', 'DOTRACK_HUB_KEY': 'old', 'QUOKKA_THING': 'q'}
+    found = legacy.apply(env)
+    assert env['WOMBAT_APP_KOOKA_URL'] == 'https://k' and env['WOMBAT_APPS'] == 'kooka,wallaby,pelican'
+    assert env['PELICAN_HUB_KEY'] == 'x' and env['KOOKA_HUB_KEY'] == 'new'      # the new name wins
+    assert 'QUOKKA_THING' not in found and sorted(found) == ['PATRACK_HUB_KEY', 'WEHUB_APPS', 'WEHUB_APP_DOTRACK_URL']

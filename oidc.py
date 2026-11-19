@@ -46,7 +46,7 @@ def configure(app):
             server_metadata_url=f'{issuer}/.well-known/openid-configuration',
             client_kwargs={'scope': 'openid email profile', 'code_challenge_method': 'S256'},
         )
-        # _NOME is the name eaTrack used before v5
+        # _NOME is the name Wallaby used before v5
         PROVIDERS[pid] = env('NAME') or env('NOME') or DEFAULTS.get(pid, {}).get('name') or pid.capitalize()
         print(f'[oidc] provider enabled: {pid}', flush=True)
 
@@ -98,15 +98,15 @@ def callback(pid):
         return _error('The provider did not return an identifier')
 
     if hub.enabled():
-        # The family lives in weHub: it says who this is and what they may use
+        # The family lives in Wombat: it says who this is and what they may use
         try:
             user = hub.sign_in(pid, str(info.get('iss') or ''), subject, email, verified,
                                text(info.get('name') or email.split('@')[0], 80))
         except hub.NoAccess:
-            return _error('You cannot use this app: ask the family admin in weHub')
+            return _error('You cannot use this app: ask the family admin in Wombat')
         except hub.Unavailable as e:
             print(f'[hub] sign-in: {e}', flush=True)
-            return _error('weHub is not reachable, please try again in a moment')
+            return _error('Wombat is not reachable, please try again in a moment')
         with db.transaction() as conn:
             conn.execute('INSERT OR IGNORE INTO identities (provider, subject, user_id, email) VALUES (?,?,?,?)',
                          (pid, subject, user['id'], email))
